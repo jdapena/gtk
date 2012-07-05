@@ -30,6 +30,7 @@
 #include <unistd.h>
 #include <limits.h>
 #include <errno.h>
+#include <sys/mman.h>
 
 #include "gdk.h"
 #include "gdkwayland.h"
@@ -223,6 +224,35 @@ _gdk_wayland_keymap_new (GdkDisplay *display)
   names.variant = "";
   names.options = "";
   keymap->xkb = xkb_map_new_from_names(context, &names, XKB_MAP_COMPILE_PLACEHOLDER);
+  keymap->state = xkb_state_new (keymap->xkb);
+  xkb_context_unref (context);
+
+  return GDK_KEYMAP (keymap);
+}
+
+GdkKeymap *
+_gdk_wayland_keymap_new_from_fd (GdkDisplay *display,
+				 uint32_t format,
+				 uint32_t fd, uint32_t size)
+{
+  GdkWaylandKeymap *keymap;
+  struct xkb_context *context;
+  char *map_str;
+
+  keymap = g_object_new (_gdk_wayland_keymap_get_type(), NULL);
+  GDK_KEYMAP (keymap)->display = display;
+
+  context = xkb_context_new (0);
+
+  map_str = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
+  if (map_str == MAP_FAILED) {
+    close(fd);
+    return NULL;
+  }
+
+  keymap->xkb = xkb_map_new_from_string (context, map_str, format, XKB_MAP_COMPILE_PLACEHOLDER);
+  munmap (map_str, size);
+  close (fd);
   keymap->state = xkb_state_new (keymap->xkb);
   xkb_context_unref (context);
 

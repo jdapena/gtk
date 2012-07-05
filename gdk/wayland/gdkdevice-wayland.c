@@ -676,12 +676,19 @@ deliver_key_event(GdkWaylandDevice *device,
 		  uint32_t time, uint32_t key, uint32_t state)
 {
   GdkEvent *event;
-  uint32_t code;
   struct xkb_state *xkb_state;
   GdkKeymap *keymap;
+  xkb_keysym_t sym;
+  uint32_t num_syms;
+  const xkb_keysym_t *syms;
 
   keymap = gdk_keymap_get_for_display (device->display);
   xkb_state = _gdk_wayland_keymap_get_xkb_state (keymap);
+
+  num_syms = xkb_key_get_syms (xkb_state, key, &syms);
+  sym = XKB_KEY_NoSymbol;
+  if (num_syms == 1)
+    sym = syms[0];
 
   device->time = time;
   device->modifiers = get_modifier (xkb_state);
@@ -692,10 +699,9 @@ deliver_key_event(GdkWaylandDevice *device,
   event->button.time = time;
   event->key.state = device->modifiers;
   event->key.group = 0;
-  code = key;
   event->key.hardware_keycode = key;
 
-  event->key.keyval = code;
+  event->key.keyval = sym;
 
   event->key.is_modifier = device->modifiers > 0;
 
@@ -706,7 +712,7 @@ deliver_key_event(GdkWaylandDevice *device,
   GDK_NOTE (EVENTS,
 	    g_message ("keyboard event, code %d, sym %d, "
 		       "string %s, mods 0x%x",
-		       code, event->key.keyval,
+		       event->key.hardware_keycode, event->key.keyval,
 		       event->key.string, event->key.state));
 
   device->repeat_count++;
@@ -762,7 +768,7 @@ keyboard_handle_key(void *data, struct wl_keyboard *input_device, uint32_t seria
 
   device->repeat_count = 0;
   GDK_WAYLAND_DISPLAY (device->display)->serial = serial;
-  deliver_key_event (data, time, key, state);
+  deliver_key_event (data, time, key + 8, state);
 }
 
 static void
@@ -838,6 +844,14 @@ static void
 keyboard_handle_keymap(void *data, struct wl_keyboard *keyboard,
 		       uint32_t format, int fd, uint32_t size)
 {
+  GdkWaylandDevice *device = data;
+  GdkKeymap *keymap;
+
+  keymap = _gdk_wayland_keymap_new_from_fd (device->display,
+					    format, fd, size);
+
+  _gdk_wayland_display_set_keymap (device->display, keymap);
+  if (keymap) g_object_unref (keymap);
 }
 
 static const struct wl_pointer_listener pointer_listener = {

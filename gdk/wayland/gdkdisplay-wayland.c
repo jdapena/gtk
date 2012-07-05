@@ -542,6 +542,24 @@ gdk_wayland_display_get_keymap (GdkDisplay *display)
   return display_wayland->keymap;
 }
 
+void
+_gdk_wayland_display_set_keymap (GdkDisplay *display,
+				 GdkKeymap *keymap)
+{
+  GdkWaylandDisplay *display_wayland;
+
+  g_return_if_fail (GDK_IS_DISPLAY (display));
+  display_wayland = GDK_WAYLAND_DISPLAY (display);
+
+  if (display_wayland->keymap == keymap)
+    return;
+
+  if (display_wayland->keymap)
+    g_object_unref (display_wayland->keymap);
+
+  display_wayland->keymap = g_object_ref (keymap);
+}
+
 static void
 gdk_wayland_display_push_error_trap (GdkDisplay *display)
 {
