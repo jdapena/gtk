@@ -406,7 +406,7 @@ pointer_handle_enter(void *data, struct wl_pointer *pointer,
   gdouble sy = wl_fixed_to_double(sy_w);
   gint x_root, y_root;
 
-  if (!surface) {
+  if (!surface || device->pointer_surface == surface) {
     /* enter event for a window we've just destroyed */
     return;
   }
@@ -659,14 +659,14 @@ static GdkModifierType
 get_modifier (struct xkb_state *state)
 {
   GdkModifierType modifiers = 0;
-  modifiers |= (xkb_state_mod_name_is_active (state, XKB_MOD_NAME_SHIFT, XKB_STATE_EFFECTIVE) == 1)?GDK_SHIFT_MASK:0;
-  modifiers |= (xkb_state_mod_name_is_active (state, XKB_MOD_NAME_CAPS, XKB_STATE_EFFECTIVE) == 1)?GDK_LOCK_MASK:0;
-  modifiers |= (xkb_state_mod_name_is_active (state, XKB_MOD_NAME_CTRL, XKB_STATE_EFFECTIVE) == 1)?GDK_CONTROL_MASK:0;
-  modifiers |= (xkb_state_mod_name_is_active (state, XKB_MOD_NAME_ALT, XKB_STATE_EFFECTIVE) == 1)?GDK_MOD1_MASK:0;
-  modifiers |= (xkb_state_mod_name_is_active (state, "Mod2", XKB_STATE_EFFECTIVE) == 1)?GDK_MOD2_MASK:0;
-  modifiers |= (xkb_state_mod_name_is_active (state, "Mod3", XKB_STATE_EFFECTIVE) == 1)?GDK_MOD3_MASK:0;
-  modifiers |= (xkb_state_mod_name_is_active (state, XKB_MOD_NAME_LOGO, XKB_STATE_EFFECTIVE) == 1)?GDK_MOD4_MASK:0;
-  modifiers |= (xkb_state_mod_name_is_active (state, "Mod5", XKB_STATE_EFFECTIVE) == 1)?GDK_MOD5_MASK:0;
+  modifiers |= (xkb_state_mod_name_is_active (state, XKB_MOD_NAME_SHIFT, XKB_STATE_EFFECTIVE) > 0)?GDK_SHIFT_MASK:0;
+  modifiers |= (xkb_state_mod_name_is_active (state, XKB_MOD_NAME_CAPS, XKB_STATE_EFFECTIVE) > 0)?GDK_LOCK_MASK:0;
+  modifiers |= (xkb_state_mod_name_is_active (state, XKB_MOD_NAME_CTRL, XKB_STATE_EFFECTIVE) > 0)?GDK_CONTROL_MASK:0;
+  modifiers |= (xkb_state_mod_name_is_active (state, XKB_MOD_NAME_ALT, XKB_STATE_EFFECTIVE) > 0)?GDK_MOD1_MASK:0;
+  modifiers |= (xkb_state_mod_name_is_active (state, "Mod2", XKB_STATE_EFFECTIVE) > 0)?GDK_MOD2_MASK:0;
+  modifiers |= (xkb_state_mod_name_is_active (state, "Mod3", XKB_STATE_EFFECTIVE) > 0)?GDK_MOD3_MASK:0;
+  modifiers |= (xkb_state_mod_name_is_active (state, XKB_MOD_NAME_LOGO, XKB_STATE_EFFECTIVE) > 0)?GDK_MOD4_MASK:0;
+  modifiers |= (xkb_state_mod_name_is_active (state, "Mod5", XKB_STATE_EFFECTIVE) > 0)?GDK_MOD5_MASK:0;
 
   return modifiers;
 }
@@ -699,7 +699,7 @@ deliver_key_event(GdkWaylandDevice *device,
   event->button.time = time;
   event->key.state = device->modifiers;
   event->key.group = 0;
-  event->key.hardware_keycode = key;
+  event->key.hardware_keycode = sym;
 
   event->key.keyval = sym;
 
@@ -778,8 +778,14 @@ keyboard_handle_modifiers(void *data, struct wl_keyboard *keyboard,
 			  uint32_t group)
 {
   GdkWaylandDevice *device = data;
+  GdkKeymap *keymap;
+  struct xkb_state *xkb_state;
 
-  device->modifiers = mods_latched | mods_locked;
+  keymap = gdk_keymap_get_for_display (device->display);
+  xkb_state = _gdk_wayland_keymap_get_xkb_state (keymap);
+  device->modifiers = mods_depressed | mods_latched | mods_locked;
+
+  xkb_state_update_mask (xkb_state, mods_depressed, mods_latched, mods_locked, group, 0, 0);
 }
 
 static void
