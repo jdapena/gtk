@@ -129,6 +129,8 @@ struct _GdkWindowImplWayland
 
   GdkGeometry geometry_hints;
   GdkWindowHints geometry_mask;
+  gboolean is_fullscreen;
+  int saved_width, saved_height;
 
   struct wl_seat *grab_seat;
   guint32 grab_time;
@@ -145,6 +147,9 @@ static void
 _gdk_window_impl_wayland_init (GdkWindowImplWayland *impl)
 {
   impl->toplevel_window_type = -1;
+  impl->is_fullscreen = FALSE;
+  impl->saved_width = 0;
+  impl->saved_height = 0;
 }
 
 void
@@ -634,7 +639,7 @@ gdk_wayland_window_set_user_time (GdkWindow *window, guint32 user_time)
 }
 
 static void
-gdk_wayland_window_map (GdkWindow *window)
+_gdk_wayland_window_update_shell_surface (GdkWindow *window)
 {
   GdkWindowImplWayland *impl = GDK_WINDOW_IMPL_WAYLAND (window->impl);
   GdkWindowImplWayland *parent;
@@ -642,36 +647,55 @@ gdk_wayland_window_map (GdkWindow *window)
 
   display = gdk_window_get_display (window);
 
+  if (impl->transient_for)
+    {
+      parent = GDK_WINDOW_IMPL_WAYLAND (impl->transient_for->impl);
+
+      if (impl->hint == GDK_WINDOW_TYPE_HINT_POPUP_MENU ||
+	  impl->hint == GDK_WINDOW_TYPE_HINT_DROPDOWN_MENU ||
+	  impl->hint == GDK_WINDOW_TYPE_HINT_COMBO)
+	{
+	  struct wl_seat *seat;
+
+	  seat = parent->grab_seat?parent->grab_seat:impl->grab_seat;
+	  /* Use the device that was used for the grab as the device for
+	   * the popup window setup - so this relies on GTK+ taking the
+	   * grab before showing the popup window.
+               */
+	  wl_shell_surface_set_popup (impl->shell_surface,
+				      seat, GDK_WAYLAND_DISPLAY (display)->serial,
+				      parent->surface,
+				      window->x, window->y, 0);
+	} else {
+	wl_shell_surface_set_transient (impl->shell_surface, parent->surface,
+					window->x, window->y, 0);
+      }
+    }
+  else
+    {
+      if (impl->is_fullscreen)
+	{
+	  impl->saved_width = gdk_window_get_width (window);
+	  impl->saved_height = gdk_window_get_height (window);
+	  wl_shell_surface_set_fullscreen (impl->shell_surface, WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT, 0, NULL);
+	}
+      else
+	{
+	  wl_shell_surface_set_toplevel (impl->shell_surface);
+	  if (impl->saved_width > 0 && impl->saved_height > 0)
+	    gdk_window_resize (window, impl->saved_width, impl->saved_height);
+	}
+    }
+}
+
+static void
+gdk_wayland_window_map (GdkWindow *window)
+{
+  GdkWindowImplWayland *impl = GDK_WINDOW_IMPL_WAYLAND (window->impl);
+
   if (!impl->mapped)
     {
-      if (impl->transient_for)
-        {
-          parent = GDK_WINDOW_IMPL_WAYLAND (impl->transient_for->impl);
-
-          if (impl->hint == GDK_WINDOW_TYPE_HINT_POPUP_MENU ||
-              impl->hint == GDK_WINDOW_TYPE_HINT_DROPDOWN_MENU ||
-              impl->hint == GDK_WINDOW_TYPE_HINT_COMBO)
-            {
-	      struct wl_seat *seat;
-
-	      seat = parent->grab_seat?parent->grab_seat:impl->grab_seat;
-              /* Use the device that was used for the grab as the device for
-               * the popup window setup - so this relies on GTK+ taking the
-               * grab before showing the popup window.
-               */
-              wl_shell_surface_set_popup (impl->shell_surface,
-                                          seat, GDK_WAYLAND_DISPLAY (display)->serial,
-                                          parent->surface,
-                                          window->x, window->y, 0);
-            } else {
-                wl_shell_surface_set_transient (impl->shell_surface, parent->surface,
-                                                window->x, window->y, 0);
-            }
-        }
-      else
-        {
-          wl_shell_surface_set_toplevel (impl->shell_surface);
-        }
+      _gdk_wayland_window_update_shell_surface (window);
       impl->mapped = TRUE;
     }
 }
@@ -1106,8 +1130,8 @@ gdk_wayland_window_set_type_hint (GdkWindow        *window,
     case GDK_WINDOW_TYPE_HINT_DIALOG:
     case GDK_WINDOW_TYPE_HINT_NORMAL:
     case GDK_WINDOW_TYPE_HINT_SPLASHSCREEN:
-      if (impl->shell_surface)
-	wl_shell_surface_set_toplevel (impl->shell_surface);
+      if (impl->mapped)
+	_gdk_wayland_window_update_shell_surface (window);
       break;
     }
 }
@@ -1322,15 +1346,27 @@ gdk_wayland_window_unmaximize (GdkWindow *window)
 static void
 gdk_wayland_window_fullscreen (GdkWindow *window)
 {
+  GdkWindowImplWayland *impl = GDK_WINDOW_IMPL_WAYLAND (window->impl);
+
   if (GDK_WINDOW_DESTROYED (window))
     return;
+
+  impl->is_fullscreen = TRUE;
+  if (impl->mapped)
+    _gdk_wayland_window_update_shell_surface (window);
 }
 
 static void
 gdk_wayland_window_unfullscreen (GdkWindow *window)
 {
+  GdkWindowImplWayland *impl = GDK_WINDOW_IMPL_WAYLAND (window->impl);
+
   if (GDK_WINDOW_DESTROYED (window))
     return;
+
+  impl->is_fullscreen = FALSE;
+  if (impl->mapped)
+    _gdk_wayland_window_update_shell_surface (window);
 }
 
 static void
