@@ -47,7 +47,8 @@ void _gdk_wayland_window_add_focus    (GdkWindow *window);
 void _gdk_wayland_window_remove_focus (GdkWindow *window);
 
 GdkKeymap *_gdk_wayland_keymap_new (GdkDisplay *display);
-struct xkb_desc *_gdk_wayland_keymap_get_xkb_desc (GdkKeymap *keymap);
+struct xkb_keymap *_gdk_wayland_keymap_get_xkb_keymap (GdkKeymap *keymap);
+struct xkb_state *_gdk_wayland_keymap_get_xkb_state (GdkKeymap *keymap);
 
 GdkCursor *_gdk_wayland_display_get_cursor_for_type (GdkDisplay    *display,
 						     GdkCursorType  cursor_type);
@@ -68,7 +69,9 @@ gboolean   _gdk_wayland_display_supports_cursor_color (GdkDisplay *display);
 
 struct wl_buffer *_gdk_wayland_cursor_get_buffer (GdkCursor *cursor,
 						  int       *x,
-						  int       *y);
+						  int       *y,
+						  int       *width,
+						  int       *height);
 
 GdkDragProtocol _gdk_wayland_window_get_drag_protocol (GdkWindow *window,
 						       GdkWindow **target);
@@ -122,8 +125,8 @@ gchar *     _gdk_wayland_display_utf8_to_string_target (GdkDisplay  *display,
 
 GdkDeviceManager *_gdk_wayland_device_manager_new (GdkDisplay *display);
 void              _gdk_wayland_device_manager_add_device (GdkDeviceManager *device_manager,
-							  struct wl_input_device *device);
-struct wl_input_device *_gdk_wayland_device_get_device (GdkDevice *device);
+							  struct wl_seat *seat);
+struct wl_seat *_gdk_wayland_device_get_device (GdkDevice *device);
 
 void     _gdk_wayland_display_deliver_event (GdkDisplay *display, GdkEvent *event);
 GSource *_gdk_wayland_display_event_source_new (GdkDisplay *display);
@@ -147,7 +150,7 @@ void _gdk_wayland_display_manager_remove_display (GdkDisplayManager *manager,
 						  GdkDisplay        *display);
 
 void _gdk_wayland_window_set_device_grabbed (GdkWindow *window,
-                                             struct wl_input_device *input_device,
+                                             struct wl_seat *seat,
                                              guint32 time_);
 
 #endif /* __GDK_PRIVATE_WAYLAND_H__ */

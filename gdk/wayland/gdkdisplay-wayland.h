@@ -80,6 +80,7 @@ struct _GdkWaylandDisplay
   struct wl_output *output;
   struct wl_input_device *input_device;
   struct wl_data_device_manager *data_device_manager;
+  uint32_t serial;
   GSource *event_source;
 
 #ifdef GDK_WAYLAND_USE_EGL

@@ -130,7 +130,7 @@ struct _GdkWindowImplWayland
   GdkGeometry geometry_hints;
   GdkWindowHints geometry_mask;
 
-  struct wl_input_device *grab_input_device;
+  struct wl_seat *grab_seat;
   guint32 grab_time;
 };
 
@@ -310,6 +310,7 @@ typedef struct _GdkWaylandCairoSurfaceData {
   gpointer buf;
   size_t buf_length;
 #endif
+  struct wl_shm_pool *pool;
   struct wl_buffer *buffer;
   GdkWaylandDisplay *display;
   int32_t width, height;
@@ -434,16 +435,15 @@ gdk_wayland_create_cairo_surface (GdkWaylandDisplay *display,
   return surface;
 }
 #else
-static struct wl_buffer *
-create_shm_buffer (struct wl_shm  *shm,
-                   int             width,
-                   int             height,
-                   uint32_t        format,
-                   size_t         *buf_length,
-                   void          **data_out)
+static struct wl_shm_pool *
+create_shm_pool (struct wl_shm  *shm,
+		 int             width,
+		 int             height,
+		 size_t         *buf_length,
+		 void          **data_out)
 {
   char filename[] = "/tmp/wayland-shm-XXXXXX";
-  struct wl_buffer *buffer;
+  struct wl_shm_pool *pool;
   int fd, size, stride;
   void *data;
 
@@ -472,14 +472,29 @@ create_shm_buffer (struct wl_shm  *shm,
       return NULL;
   }
 
-  buffer = wl_shm_create_buffer (shm, fd,
-                                 width, height,
-                                 stride, format);
+  pool = wl_shm_create_pool (shm, fd, size);
 
   close (fd);
 
   *data_out = data;
   *buf_length = size;
+  return pool;
+}
+
+static struct wl_buffer *
+create_shm_buffer (struct wl_shm_pool  *pool,
+                   int                  width,
+                   int                  height,
+                   uint32_t             format)
+{
+  struct wl_buffer *buffer;
+  int stride;
+
+  stride = width * 4;
+  buffer = wl_shm_pool_create_buffer (pool, 0,
+				      width, height,
+				      stride, format);
+
   return buffer;
 }
 
@@ -490,6 +505,9 @@ gdk_wayland_cairo_surface_destroy (void *p)
 
   if (data->buffer)
     wl_buffer_destroy (data->buffer);
+
+  if (data->pool)
+    wl_shm_pool_destroy (data->pool);
 
   munmap (data->buf, data->buf_length);
   g_free (data);
@@ -508,13 +526,15 @@ gdk_wayland_create_cairo_surface (GdkWaylandDisplay *display,
   data->buffer = NULL;
   data->width = width;
   data->height = height;
+  data->pool = create_shm_pool (display->shm,
+				width, height,
+				&data->buf_length,
+				&data->buf);
 
-  data->buffer = create_shm_buffer (display->shm,
+  data->buffer = create_shm_buffer (data->pool,
                                     width,
                                     height,
-                                    WL_SHM_FORMAT_ARGB8888,
-                                    &data->buf_length,
-                                    &data->buf);
+                                    WL_SHM_FORMAT_ARGB8888);
 
   surface = cairo_image_surface_create_for_data (data->buf,
                                                  CAIRO_FORMAT_ARGB32,
@@ -586,7 +606,6 @@ static void
 gdk_wayland_window_configure (GdkWindow *window,
 			      int width, int height, int edges)
 {
-  GdkWindowImplWayland *impl = GDK_WINDOW_IMPL_WAYLAND (window->impl);
   GdkDisplay *display;
   GdkEvent *event;
 
@@ -619,6 +638,9 @@ gdk_wayland_window_map (GdkWindow *window)
 {
   GdkWindowImplWayland *impl = GDK_WINDOW_IMPL_WAYLAND (window->impl);
   GdkWindowImplWayland *parent;
+  GdkDisplay *display;
+
+  display = gdk_window_get_display (window);
 
   if (!impl->mapped)
     {
@@ -626,20 +648,20 @@ gdk_wayland_window_map (GdkWindow *window)
         {
           parent = GDK_WINDOW_IMPL_WAYLAND (impl->transient_for->impl);
 
-          if (impl->hint & GDK_WINDOW_TYPE_HINT_POPUP_MENU ||
-              impl->hint & GDK_WINDOW_TYPE_HINT_DROPDOWN_MENU ||
-              impl->hint & GDK_WINDOW_TYPE_HINT_COMBO)
+          if (impl->hint == GDK_WINDOW_TYPE_HINT_POPUP_MENU ||
+              impl->hint == GDK_WINDOW_TYPE_HINT_DROPDOWN_MENU ||
+              impl->hint == GDK_WINDOW_TYPE_HINT_COMBO)
             {
               /* Use the device that was used for the grab as the device for
                * the popup window setup - so this relies on GTK+ taking the
                * grab before showing the popup window.
                */
               wl_shell_surface_set_popup (impl->shell_surface,
-                                          parent->grab_input_device, parent->grab_time,
-                                          parent->shell_surface,
+                                          parent->grab_seat, GDK_WAYLAND_DISPLAY (display)->serial,
+                                          parent->surface,
                                           window->x, window->y, 0);
             } else {
-                wl_shell_surface_set_transient (impl->shell_surface, parent->shell_surface,
+                wl_shell_surface_set_transient (impl->shell_surface, parent->surface,
                                                 window->x, window->y, 0);
             }
         }
@@ -652,9 +674,16 @@ gdk_wayland_window_map (GdkWindow *window)
 }
 
 static void
+shell_surface_ping (void *data,
+		    struct wl_shell_surface *shell_surface,
+		    uint32_t serial)
+{
+  wl_shell_surface_pong(shell_surface, serial);
+}
+
+static void
 shell_surface_handle_configure(void *data,
                                struct wl_shell_surface *shell_surface,
-                               uint32_t time,
                                uint32_t edges,
                                int32_t width,
                                int32_t height)
@@ -686,6 +715,7 @@ shell_surface_popup_done (void                    *data,
 }
 
 static const struct wl_shell_surface_listener shell_surface_listener = {
+  shell_surface_ping,
   shell_surface_handle_configure,
   shell_surface_popup_done
 };
@@ -1496,9 +1526,6 @@ gdk_wayland_window_process_updates_recurse (GdkWindow      *window,
                                             cairo_region_t *region)
 {
   GdkWindowImplWayland *impl = GDK_WINDOW_IMPL_WAYLAND (window->impl);
-#ifndef GDK_WAYLAND_USE_EGL
-  GdkWaylandCairoSurfaceData *data = NULL;
-#endif
   cairo_rectangle_int_t rect;
   int i, n;
 
@@ -1507,21 +1534,10 @@ gdk_wayland_window_process_updates_recurse (GdkWindow      *window,
   if (impl->cairo_surface)
     gdk_wayland_window_attach_image (window);
 
-#ifndef GDK_WAYLAND_USE_EGL
-  if (impl->server_surface)
-    data = cairo_surface_get_user_data (impl->server_surface,
-                                        &gdk_wayland_cairo_key);
-#endif
-
   n = cairo_region_num_rectangles(region);
   for (i = 0; i < n; i++)
     {
       cairo_region_get_rectangle (region, i, &rect);
-#ifndef GDK_WAYLAND_USE_EGL
-      if (data && data->buffer)
-        wl_buffer_damage (data->buffer,
-                          rect.x, rect.y, rect.width, rect.height);
-#endif
       wl_surface_damage (impl->surface,
                          rect.x, rect.y, rect.width, rect.height);
     }
@@ -1681,7 +1697,7 @@ _gdk_window_impl_wayland_class_init (GdkWindowImplWaylandClass *klass)
 
 void
 _gdk_wayland_window_set_device_grabbed (GdkWindow              *window,
-                                        struct wl_input_device *input_device,
+                                        struct wl_seat         *seat,
                                         guint32                 time_)
 {
   GdkWindowImplWayland *impl;
@@ -1690,6 +1706,6 @@ _gdk_wayland_window_set_device_grabbed (GdkWindow              *window,
 
   impl = GDK_WINDOW_IMPL_WAYLAND (window->impl);
 
-  impl->grab_input_device = input_device;
+  impl->grab_seat = seat;
   impl->grab_time = time_;
 }

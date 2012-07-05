@@ -54,6 +54,7 @@ struct _GdkWaylandCursor
   guint serial;
   int x, y, width, height, size;
   void *map;
+  struct wl_shm_pool *shm_pool;
   struct wl_buffer *buffer;
 };
 
@@ -83,12 +84,16 @@ gdk_wayland_cursor_get_image (GdkCursor *cursor)
 }
 
 struct wl_buffer *
-_gdk_wayland_cursor_get_buffer (GdkCursor *cursor, int *x, int *y)
+_gdk_wayland_cursor_get_buffer (GdkCursor *cursor,
+				int *x, int *y,
+				int *width, int *height)
 {
   GdkWaylandCursor *wayland_cursor = GDK_WAYLAND_CURSOR (cursor);
 
   *x = wayland_cursor->x;
   *y = wayland_cursor->y;
+  *width = wayland_cursor->width;
+  *height = wayland_cursor->height;
 
   return wayland_cursor->buffer;
 }
@@ -228,11 +233,14 @@ create_cursor(GdkWaylandDisplay *display, GdkPixbuf *pixbuf, int x, int y)
   else
     memset (cursor->map, 0, 4);
 
-  cursor->buffer = wl_shm_create_buffer(display->shm,
-					fd,
-					cursor->width,
-					cursor->height,
-					stride, WL_SHM_FORMAT_ARGB8888);
+  cursor->shm_pool = wl_shm_create_pool (display->shm,
+					 fd, cursor->size);
+
+  cursor->buffer = wl_shm_pool_create_buffer(cursor->shm_pool,
+					     0,
+					     cursor->width,
+					     cursor->height,
+					     stride, WL_SHM_FORMAT_ARGB8888);
 
   close(fd);
 
