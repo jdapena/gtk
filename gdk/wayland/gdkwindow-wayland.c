@@ -652,12 +652,15 @@ gdk_wayland_window_map (GdkWindow *window)
               impl->hint == GDK_WINDOW_TYPE_HINT_DROPDOWN_MENU ||
               impl->hint == GDK_WINDOW_TYPE_HINT_COMBO)
             {
+	      struct wl_seat *seat;
+
+	      seat = parent->grab_seat?parent->grab_seat:impl->grab_seat;
               /* Use the device that was used for the grab as the device for
                * the popup window setup - so this relies on GTK+ taking the
                * grab before showing the popup window.
                */
               wl_shell_surface_set_popup (impl->shell_surface,
-                                          parent->grab_seat, GDK_WAYLAND_DISPLAY (display)->serial,
+                                          seat, GDK_WAYLAND_DISPLAY (display)->serial,
                                           parent->surface,
                                           window->x, window->y, 0);
             } else {
