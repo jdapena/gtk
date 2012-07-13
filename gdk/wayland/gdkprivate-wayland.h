@@ -47,7 +47,11 @@ void _gdk_wayland_window_add_focus    (GdkWindow *window);
 void _gdk_wayland_window_remove_focus (GdkWindow *window);
 
 GdkKeymap *_gdk_wayland_keymap_new (GdkDisplay *display);
+GdkKeymap *_gdk_wayland_keymap_new_from_fd (GdkDisplay *display,
+                                            uint32_t format,
+                                            uint32_t fd, uint32_t size);
 struct xkb_desc *_gdk_wayland_keymap_get_xkb_desc (GdkKeymap *keymap);
+struct xkb_state *_gdk_wayland_keymap_get_xkb_state (GdkKeymap *keymap);
 
 GdkCursor *_gdk_wayland_display_get_cursor_for_type (GdkDisplay    *display,
 						     GdkCursorType  cursor_type);
@@ -89,6 +93,8 @@ void _gdk_wayland_display_create_window_impl (GdkDisplay    *display,
 					      gint           attributes_mask);
 
 GdkKeymap *_gdk_wayland_display_get_keymap (GdkDisplay *display);
+void       _gdk_wayland_display_set_keymap (GdkDisplay *display,
+                                            GdkKeymap *keymap);
 
 GdkWindow *_gdk_wayland_display_get_selection_owner (GdkDisplay *display,
 						 GdkAtom     selection);
