@@ -150,6 +150,7 @@ _gdk_window_impl_wayland_init (GdkWindowImplWayland *impl)
   impl->is_fullscreen = FALSE;
   impl->saved_width = 0;
   impl->saved_height = 0;
+  impl->grab_input_seat = NULL;
 }
 
 void
